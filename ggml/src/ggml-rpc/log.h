@@ -10,10 +10,17 @@
 //   2         - per-command trace: every RPC message sent/received, tensor transfers, cache hits/misses
 //   3         - fine detail: per-command timings, graph node dumps, transport byte counts
 // non-numeric values fall back to 1
+//
+// Byte counts are printed via format_size() below (KiB / MiB / GiB) to keep the per-command
+// trace readable. Tensor identity (name, op, type, shape) is printed via format_tensor() in
+// ggml-rpc.cpp.
 
 #include "ggml-impl.h"
 
+#include <cstddef>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
 
 static inline int rpc_debug_level() {
     static const int level = [] {
@@ -46,3 +53,25 @@ static inline int rpc_debug_level() {
 #define LOG_DBG(...)  do { if (rpc_debug_level() >= 1) GGML_LOG_DEBUG(__VA_ARGS__); } while (0)
 #define LOG_DBG2(...) do { if (rpc_debug_level() >= 2) GGML_LOG_DEBUG(__VA_ARGS__); } while (0)
 #define LOG_DBG3(...) do { if (rpc_debug_level() >= 3) GGML_LOG_DEBUG(__VA_ARGS__); } while (0)
+
+// Byte counts are logged in binary units to keep the per-message trace readable:
+//   format_size(8208) -> "8.02 KiB", format_size(109314048) -> "104.25 MiB"
+// Sizes below 1 KiB stay in plain bytes. Use with "%s", format_size(n).c_str()
+static inline std::string format_size(size_t size) {
+    static const char * units[] = { "B", "KiB", "MiB", "GiB", "TiB", "PiB" };
+
+    double value = (double) size;
+    size_t unit  = 0;
+    while (value >= 1024.0 && unit + 1 < sizeof(units) / sizeof(units[0])) {
+        value /= 1024.0;
+        unit++;
+    }
+
+    char buf[32];
+    if (unit == 0) {
+        snprintf(buf, sizeof(buf), "%zu B", size);
+    } else {
+        snprintf(buf, sizeof(buf), "%.2f %s", value, units[unit]);
+    }
+    return std::string(buf);
+}
